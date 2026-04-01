@@ -5,8 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>奥特生字大闯关</title>
 <style>
-  /* 基础设置：禁止滑动和缩放，全屏显示 */
-  * { box-sizing: border-box; margin: 0; padding: 0; touch-action: none; user-select: none; -webkit-user-select: none; }
+  * { box-sizing: border-box; margin: 0; padding: 0; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
   body { 
     font-family: 'Microsoft YaHei', sans-serif; 
     text-align: center; 
@@ -15,15 +14,13 @@
     display: flex; flex-direction: column;
   }
   
-  /* 字卡铺满屏幕，加入轻微的3D质感 */
   .card { 
     flex: 1; width: 90vw; background: linear-gradient(145deg, #ffffff, #f0f0f0); 
     border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); 
     margin: 20px auto; display: flex; align-items: center; justify-content: center; 
-    font-size: 45vmin; color: #333; font-weight: bold; transition: transform 0.1s;
+    font-size: 45vmin; color: #333; font-weight: bold;
   }
   
-  /* 底部操作区 */
   .bottom-area {
     height: auto; padding: 15px 20px 40px; background-color: #fff;
     border-top-left-radius: 30px; border-top-right-radius: 30px;
@@ -33,15 +30,16 @@
   #feedback { font-size: 22px; font-weight: bold; min-height: 32px; color: #ff6b6b; margin-bottom: 15px; }
   .correct { color: #4CAF50 !important; }
   
-  /* 核心录音按钮 */
+  /* 删除了 transform 缩小动画，避免手指滑出边界 */
   button { 
     background-color: #4CAF50; color: white; border: none; 
     padding: 20px 0; font-size: 24px; border-radius: 50px; 
     width: 90%; max-width: 400px; font-weight: bold; outline: none;
-    box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4); transition: all 0.2s;
+    box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4); 
+    transition: background-color 0.2s; /* 只保留变色动画 */
   }
   button:disabled { background-color: #ccc; box-shadow: none; color: #666; }
-  #speechBtn.recording { background-color: #f44336; box-shadow: 0 5px 15px rgba(244, 67, 54, 0.4); transform: scale(0.95); }
+  #speechBtn.recording { background-color: #f44336; box-shadow: 0 5px 15px rgba(244, 67, 54, 0.4); }
   
   #stats { margin-top: 15px; font-size: 15px; color: #888; display: flex; justify-content: space-around; }
 </style>
@@ -63,28 +61,27 @@
   <script src="https://unpkg.com/vosk-browser@0.0.9/dist/vosk.js"></script>
 
   <script>
-    // 基础生字库（后续你可以直接在这里替换成二年级下册的生字表）
     const newWords = ['天', '地', '人', '和', '学', '习', '快', '乐', '聪', '明'];
     let currentWord = '';
     let isReviewMode = false;
+    let isRecording = false; // 新增：全局录音状态锁
     
     let model, recognizer, audioContext;
     let mediaStream, source, processor;
 
-    // 艾宾浩斯复习时间间隔：12小时, 1天, 2天, 4天, 7天
     const EBBINGHAUS_INTERVALS = [12 * 3600000, 86400000, 172800000, 345600000, 604800000];
 
     const wordCard = document.getElementById('wordCard');
     const speechBtn = document.getElementById('speechBtn');
     const feedback = document.getElementById('feedback');
 
-    // 1. 初始化离线语音引擎
+    // 屏蔽整个页面的系统长按菜单
+    document.addEventListener('contextmenu', event => event.preventDefault());
+
     async function initVosk() {
       try {
         feedback.innerText = "正在激活模型，第一次加载约需30秒...";
-        // 连接到你刚才上传的 model 文件夹
         model = await Vosk.createModel('./model'); 
-        
         recognizer = new model.KaldiRecognizer(16000);
         recognizer.setWords(true);
 
@@ -94,11 +91,10 @@
         nextWord();
       } catch (e) {
         feedback.innerText = "加载失败，请刷新网页重试";
-        console.error("Vosk初始化错误:", e);
+        console.error("Vosk错误:", e);
       }
     }
 
-    // 2. 错题本与艾宾浩斯逻辑
     function getMistakes() { return JSON.parse(localStorage.getItem('kid_mistakes') || '{}'); }
     function saveMistakes(m) { localStorage.setItem('kid_mistakes', JSON.stringify(m)); updateStats(); }
 
@@ -126,9 +122,7 @@
       wordCard.innerText = currentWord;
     }
 
-    // 3. 校验识别结果
     function checkResult(text) {
-      // 离线模型返回的字之间可能有空格，先去掉空格再比对
       const cleanText = text.replace(/\s+/g, '');
       const isCorrect = cleanText.includes(currentWord);
       const m = getMistakes();
@@ -136,7 +130,6 @@
       if (isCorrect) {
         feedback.innerText = `🎉 读对啦！光之力量+1 ("${cleanText}")`;
         feedback.className = "correct";
-        
         if (isReviewMode && m[currentWord]) {
           m[currentWord].level++;
           if (m[currentWord].level >= EBBINGHAUS_INTERVALS.length) delete m[currentWord];
@@ -147,7 +140,6 @@
       } else {
         const showText = cleanText || '未听清';
         feedback.innerText = `💪 再试一次！奥特曼相信你 (听到: ${showText})`;
-        
         if (!m[currentWord]) m[currentWord] = { level: 0, nextReviewTime: Date.now() + EBBINGHAUS_INTERVALS[0] };
         else if (isReviewMode) {
           m[currentWord].level = 0;
@@ -157,14 +149,14 @@
       }
     }
 
-    // 4. 控制录音与停止
     async function startRecording(e) {
       if (e) e.preventDefault();
-      if (speechBtn.disabled) return;
+      // 如果正在录音，或者按钮被禁用，直接拦截，防止打架
+      if (isRecording || speechBtn.disabled) return;
       
       try {
+        isRecording = true; // 上锁
         if (!audioContext) {
-          // 强制使用 16000 采样率匹配模型
           const AudioContext = window.AudioContext || window.webkitAudioContext;
           audioContext = new AudioContext({sampleRate: 16000});
         }
@@ -175,12 +167,13 @@
         processor = audioContext.createScriptProcessor(4096, 1, 1);
         
         processor.onaudioprocess = (event) => {
-          const data = event.inputBuffer.getChannelData(0);
-          const pcm = new Int16Array(data.length);
-          for (let i = 0; i < data.length; i++) {
-            pcm[i] = Math.min(1, Math.max(-1, data[i])) * 0x7FFF;
+          try {
+             // 直接传入浏览器的 Float32 音频流，性能更好且不易崩溃
+             const audioData = event.inputBuffer.getChannelData(0);
+             recognizer.acceptWaveform(audioData);
+          } catch(err) {
+             console.error("音频处理出错", err);
           }
-          recognizer.acceptWaveform(pcm);
         };
 
         source.connect(processor);
@@ -191,6 +184,7 @@
         feedback.innerText = "大声读出来吧！";
         feedback.className = "";
       } catch (err) {
+        isRecording = false; // 解锁
         feedback.innerText = "⚠️ 请允许麦克风权限哦！";
         console.error(err);
       }
@@ -198,8 +192,10 @@
 
     function stopRecording(e) {
       if (e) e.preventDefault();
-      if (!speechBtn.classList.contains('recording')) return;
+      // 如果根本没在录音，直接拦截
+      if (!isRecording) return;
       
+      isRecording = false; // 解锁
       speechBtn.classList.remove('recording');
       speechBtn.innerText = "⏳ 正在解析...";
       
@@ -208,22 +204,24 @@
         source.disconnect();
         mediaStream.getTracks().forEach(t => t.stop());
         
-        // 获取最终识别结果
-        const result = recognizer.finalResult();
-        checkResult(result.text || "");
+        try {
+          const result = recognizer.finalResult();
+          checkResult(result.text || "");
+        } catch(err) {
+          checkResult("");
+        }
         
         speechBtn.innerText = "🎤 按住说话，松开识别";
       }
     }
 
-    // 5. 绑定触摸与鼠标事件
+    // 绑定事件（移除了坑人的 mouseleave）
     speechBtn.addEventListener('touchstart', startRecording, {passive: false});
     speechBtn.addEventListener('touchend', stopRecording, {passive: false});
+    speechBtn.addEventListener('touchcancel', stopRecording, {passive: false}); // 新增：防止手指滑出屏幕边缘
     speechBtn.addEventListener('mousedown', startRecording);
     speechBtn.addEventListener('mouseup', stopRecording);
-    speechBtn.addEventListener('mouseleave', stopRecording);
 
-    // 页面启动时初始化
     updateStats();
     initVosk();
   </script>
