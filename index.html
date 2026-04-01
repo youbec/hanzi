@@ -5,13 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>生字大闯关</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; touch-action: none; }
+  * { box-sizing: border-box; margin: 0; padding: 0; touch-action: none; user-select: none; -webkit-user-select: none; }
   body { 
     font-family: 'Comic Sans MS', 'Microsoft YaHei', sans-serif; 
-    text-align: center; 
-    background-color: #f0f8ff; 
-    width: 100vw; height: 100vh; 
-    overflow: hidden; 
+    text-align: center; background-color: #f0f8ff; 
+    width: 100vw; height: 100vh; overflow: hidden; 
     display: flex; flex-direction: column;
   }
   .card { 
@@ -27,18 +25,20 @@
     box-shadow: 0 -5px 20px rgba(0,0,0,0.05);
   }
   #feedback { 
-    font-size: 24px; font-weight: bold; min-height: 36px; 
-    color: #ff6b6b; margin-bottom: 20px;
+    font-size: 20px; font-weight: bold; min-height: 30px; 
+    color: #ff6b6b; margin-bottom: 15px;
   }
   .correct { color: #4CAF50 !important; }
+  /* 按钮增加过渡动画 */
   button { 
     background-color: #4CAF50; color: white; border: none; 
     padding: 18px 0; font-size: 24px; border-radius: 50px; 
     box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4); 
     cursor: pointer; margin: 5px; outline: none;
     width: 90%; max-width: 400px; font-weight: bold;
+    transition: background-color 0.2s, transform 0.1s;
   }
-  button:active { transform: translateY(2px); box-shadow: 0 2px 5px rgba(76, 175, 80, 0.4); }
+  #speechBtn.recording { background-color: #f44336; box-shadow: 0 5px 15px rgba(244, 67, 54, 0.4); transform: scale(0.95);}
   #reviewBtn { 
     background-color: #FF9800; box-shadow: 0 5px 15px rgba(255, 152, 0, 0.4); 
     margin-top: 15px; font-size: 20px; padding: 15px 0;
@@ -51,9 +51,9 @@
   <div id="wordCard" class="card">准</div>
   
   <div class="bottom-area">
-    <p id="feedback"></p>
+    <p id="feedback">请按住绿色按钮朗读</p>
     
-    <button id="speechBtn">🎤 按住 / 点击朗读</button>
+    <button id="speechBtn">🎤 按住说话，松开识别</button>
     
     <div id="stats">
       <p>错题本中待复习的字: <span id="mistakeCount">0</span> 个</p>
@@ -67,7 +67,7 @@
     let isReviewMode = false;
 
     const EBBINGHAUS_INTERVALS = [
-      1 * 60 * 1000,           // 级别0: 1分钟后复习 (测试用)
+      1 * 60 * 1000,           // 级别0: 1分钟后复习
       24 * 60 * 60 * 1000,     // 级别1: 1天
       2 * 24 * 60 * 60 * 1000, // 级别2: 2天
       4 * 24 * 60 * 60 * 1000, // 级别3: 4天
@@ -80,14 +80,8 @@
     const mistakeCountEl = document.getElementById('mistakeCount');
     const reviewBtn = document.getElementById('reviewBtn');
 
-    function getMistakes() {
-      return JSON.parse(localStorage.getItem('kid_mistakes') || '{}');
-    }
-    
-    function saveMistakes(mistakes) {
-      localStorage.setItem('kid_mistakes', JSON.stringify(mistakes));
-      updateStats();
-    }
+    function getMistakes() { return JSON.parse(localStorage.getItem('kid_mistakes') || '{}'); }
+    function saveMistakes(mistakes) { localStorage.setItem('kid_mistakes', JSON.stringify(mistakes)); updateStats(); }
     
     function updateStats() {
       const mistakes = getMistakes();
@@ -97,14 +91,12 @@
     }
 
     function nextWord() {
-      feedback.innerText = ""; // 切换新字时清空提示语
+      feedback.innerText = "请按住绿色按钮朗读"; 
       feedback.className = "";
-      
       if (isReviewMode) {
         const mistakes = getMistakes();
         const now = Date.now();
         const dueWords = Object.keys(mistakes).filter(word => mistakes[word].nextReviewTime <= now);
-        
         if (dueWords.length > 0) {
           currentWord = dueWords[0];
           wordCard.innerText = currentWord;
@@ -126,11 +118,9 @@
       if (isCorrect) {
         feedback.innerText = `🎉 读对啦！"${spokenText}"`;
         feedback.className = "correct";
-        
         if (isReviewMode && mistakes[currentWord]) {
           let wordData = mistakes[currentWord];
           wordData.level += 1;
-          
           if (wordData.level >= EBBINGHAUS_INTERVALS.length) {
             delete mistakes[currentWord];
           } else {
@@ -139,11 +129,9 @@
           saveMistakes(mistakes);
         }
         setTimeout(nextWord, 1500);
-
       } else {
         feedback.innerText = `💪 再试一次！识别成: "${spokenText || '未听清'}"`;
         feedback.className = "";
-        
         if (!mistakes[currentWord]) {
            mistakes[currentWord] = { level: 0, nextReviewTime: Date.now() + EBBINGHAUS_INTERVALS[0] };
         } else if (isReviewMode) {
@@ -159,41 +147,67 @@
       const recognition = new SpeechRecognition();
       recognition.lang = 'zh-CN'; 
       recognition.interimResults = false;
+      let isRecording = false;
 
-      speechBtn.addEventListener('click', () => {
-        feedback.innerText = "🎙️ 正在听...";
+      // 按下手指：开始录音
+      const startRecord = (e) => {
+        e.preventDefault();
+        if(isRecording) return;
+        isRecording = true;
+        speechBtn.classList.add('recording');
+        speechBtn.innerText = "🎙️ 正在录音...";
+        feedback.innerText = "正在倾听...";
         feedback.className = "";
-        try {
-          recognition.start();
-        } catch(e) {}
-      });
+        try { recognition.start(); } catch(err) {}
+      };
+
+      // 松开手指：停止录音并去识别
+      const stopRecord = (e) => {
+        e.preventDefault();
+        if(!isRecording) return;
+        isRecording = false;
+        speechBtn.classList.remove('recording');
+        speechBtn.innerText = "🎤 按住说话，松开识别";
+        feedback.innerText = "⏳ 正在拼命识别中...";
+        recognition.stop(); // 强制停止并触发 onresult
+      };
+
+      // 绑定移动端触摸和电脑端鼠标事件
+      speechBtn.addEventListener('touchstart', startRecord, {passive: false});
+      speechBtn.addEventListener('touchend', stopRecord, {passive: false});
+      speechBtn.addEventListener('mousedown', startRecord);
+      speechBtn.addEventListener('mouseup', stopRecord);
+      speechBtn.addEventListener('mouseleave', stopRecord); // 防止鼠标滑出按钮
 
       recognition.onresult = (event) => {
         const spokenText = event.results[0][0].transcript;
         handleResult(spokenText);
       };
 
+      // 增强错误捕获
       recognition.onerror = (event) => {
         if(event.error === 'not-allowed') {
           feedback.innerText = "⚠️ 请允许麦克风权限！";
+        } else if(event.error === 'network') {
+          feedback.innerText = "⚠️ 网络无法连接到语音服务器，请换 Edge 浏览器试试！";
+        } else if(event.error === 'no-speech') {
+          feedback.innerText = "⚠️ 没听到声音哦，再按住试一次";
         } else {
-          feedback.innerText = "⚠️ 没听清，请重试";
+          feedback.innerText = "⚠️ 识别出错，请重试";
         }
+        isRecording = false;
+        speechBtn.classList.remove('recording');
+        speechBtn.innerText = "🎤 按住说话，松开识别";
       };
+      
     } else {
-      // 针对微信环境的专属提示
-      feedback.innerText = "⚠️ 微信内不支持语音，请点击右上角【在浏览器打开】";
+      feedback.innerText = "⚠️ 您的浏览器不支持语音识别哦";
       speechBtn.disabled = true;
       speechBtn.style.backgroundColor = "#ccc";
     }
 
-    reviewBtn.addEventListener('click', () => {
-      isReviewMode = true;
-      nextWord();
-    });
-
-    updateStats();
-    nextWord();
+    reviewBtn.addEventListener('click', () => { isReviewMode = true; nextWord(); });
+    updateStats(); nextWord();
   </script>
 </body>
 </html>
