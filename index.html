@@ -3,211 +3,229 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>生字大闯关</title>
+<title>奥特生字大闯关</title>
 <style>
+  /* 基础设置：禁止滑动和缩放，全屏显示 */
   * { box-sizing: border-box; margin: 0; padding: 0; touch-action: none; user-select: none; -webkit-user-select: none; }
   body { 
-    font-family: 'Comic Sans MS', 'Microsoft YaHei', sans-serif; 
-    text-align: center; background-color: #f0f8ff; 
+    font-family: 'Microsoft YaHei', sans-serif; 
+    text-align: center; 
+    background-color: #f0f8ff; 
     width: 100vw; height: 100vh; overflow: hidden; 
     display: flex; flex-direction: column;
   }
+  
+  /* 字卡铺满屏幕，加入轻微的3D质感 */
   .card { 
-    flex: 1; width: 90vw; background: white; 
-    border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); 
+    flex: 1; width: 90vw; background: linear-gradient(145deg, #ffffff, #f0f0f0); 
+    border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); 
     margin: 20px auto; display: flex; align-items: center; justify-content: center; 
-    font-size: 40vmin; color: #333; transition: transform 0.1s; 
+    font-size: 45vmin; color: #333; font-weight: bold; transition: transform 0.1s;
   }
-  .card:active { transform: scale(0.98); }
+  
+  /* 底部操作区 */
   .bottom-area {
-    height: auto; padding: 10px 20px 30px; background-color: #fff;
+    height: auto; padding: 15px 20px 40px; background-color: #fff;
     border-top-left-radius: 30px; border-top-right-radius: 30px;
     box-shadow: 0 -5px 20px rgba(0,0,0,0.05);
   }
-  #feedback { 
-    font-size: 20px; font-weight: bold; min-height: 30px; 
-    color: #ff6b6b; margin-bottom: 15px;
-  }
+  
+  #feedback { font-size: 22px; font-weight: bold; min-height: 32px; color: #ff6b6b; margin-bottom: 15px; }
   .correct { color: #4CAF50 !important; }
-  /* 按钮增加过渡动画 */
+  
+  /* 核心录音按钮 */
   button { 
     background-color: #4CAF50; color: white; border: none; 
-    padding: 18px 0; font-size: 24px; border-radius: 50px; 
-    box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4); 
-    cursor: pointer; margin: 5px; outline: none;
-    width: 90%; max-width: 400px; font-weight: bold;
-    transition: background-color 0.2s, transform 0.1s;
+    padding: 20px 0; font-size: 24px; border-radius: 50px; 
+    width: 90%; max-width: 400px; font-weight: bold; outline: none;
+    box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4); transition: all 0.2s;
   }
-  #speechBtn.recording { background-color: #f44336; box-shadow: 0 5px 15px rgba(244, 67, 54, 0.4); transform: scale(0.95);}
-  #reviewBtn { 
-    background-color: #FF9800; box-shadow: 0 5px 15px rgba(255, 152, 0, 0.4); 
-    margin-top: 15px; font-size: 20px; padding: 15px 0;
-  }
-  #stats { margin-top: 10px; font-size: 16px; color: #888;}
+  button:disabled { background-color: #ccc; box-shadow: none; color: #666; }
+  #speechBtn.recording { background-color: #f44336; box-shadow: 0 5px 15px rgba(244, 67, 54, 0.4); transform: scale(0.95); }
+  
+  #stats { margin-top: 15px; font-size: 15px; color: #888; display: flex; justify-content: space-around; }
 </style>
 </head>
 <body>
 
-  <div id="wordCard" class="card">准</div>
+  <div id="wordCard" class="card">加载中</div>
   
   <div class="bottom-area">
-    <p id="feedback">请按住绿色按钮朗读</p>
-    
-    <button id="speechBtn">🎤 按住说话，松开识别</button>
+    <p id="feedback">正在召唤离线语音引擎...</p>
+    <button id="speechBtn" disabled>请稍候...</button>
     
     <div id="stats">
-      <p>错题本中待复习的字: <span id="mistakeCount">0</span> 个</p>
-      <button id="reviewBtn">进入错题复习模式</button>
+      <span>错题本待复习: <strong id="mistakeCount" style="color:#ff6b6b;">0</strong> 个</span>
+      <span id="modeStatus">🚀 学习模式</span>
     </div>
   </div>
 
+  <script src="https://unpkg.com/vosk-browser@0.0.9/dist/vosk.js"></script>
+
   <script>
+    // 基础生字库（后续你可以直接在这里替换成二年级下册的生字表）
     const newWords = ['天', '地', '人', '和', '学', '习', '快', '乐', '聪', '明'];
     let currentWord = '';
     let isReviewMode = false;
+    
+    let model, recognizer, audioContext;
+    let mediaStream, source, processor;
 
-    const EBBINGHAUS_INTERVALS = [
-      1 * 60 * 1000,           // 级别0: 1分钟后复习
-      24 * 60 * 60 * 1000,     // 级别1: 1天
-      2 * 24 * 60 * 60 * 1000, // 级别2: 2天
-      4 * 24 * 60 * 60 * 1000, // 级别3: 4天
-      7 * 24 * 60 * 60 * 1000  // 级别4: 7天
-    ];
+    // 艾宾浩斯复习时间间隔：12小时, 1天, 2天, 4天, 7天
+    const EBBINGHAUS_INTERVALS = [12 * 3600000, 86400000, 172800000, 345600000, 604800000];
 
     const wordCard = document.getElementById('wordCard');
     const speechBtn = document.getElementById('speechBtn');
     const feedback = document.getElementById('feedback');
-    const mistakeCountEl = document.getElementById('mistakeCount');
-    const reviewBtn = document.getElementById('reviewBtn');
 
+    // 1. 初始化离线语音引擎
+    async function initVosk() {
+      try {
+        feedback.innerText = "正在激活模型，第一次加载约需30秒...";
+        // 连接到你刚才上传的 model 文件夹
+        model = await Vosk.createModel('./model'); 
+        
+        recognizer = new model.KaldiRecognizer(16000);
+        recognizer.setWords(true);
+
+        feedback.innerText = "准备就绪！";
+        speechBtn.disabled = false;
+        speechBtn.innerText = "🎤 按住说话，松开识别";
+        nextWord();
+      } catch (e) {
+        feedback.innerText = "加载失败，请刷新网页重试";
+        console.error("Vosk初始化错误:", e);
+      }
+    }
+
+    // 2. 错题本与艾宾浩斯逻辑
     function getMistakes() { return JSON.parse(localStorage.getItem('kid_mistakes') || '{}'); }
-    function saveMistakes(mistakes) { localStorage.setItem('kid_mistakes', JSON.stringify(mistakes)); updateStats(); }
-    
+    function saveMistakes(m) { localStorage.setItem('kid_mistakes', JSON.stringify(m)); updateStats(); }
+
     function updateStats() {
-      const mistakes = getMistakes();
-      const now = Date.now();
-      const dueCount = Object.keys(mistakes).filter(word => mistakes[word].nextReviewTime <= now).length;
-      mistakeCountEl.innerText = dueCount;
+      const m = getMistakes();
+      const dueCount = Object.keys(m).filter(w => m[w].nextReviewTime <= Date.now()).length;
+      document.getElementById('mistakeCount').innerText = dueCount;
     }
 
     function nextWord() {
-      feedback.innerText = "请按住绿色按钮朗读"; 
+      feedback.innerText = "请按住绿色按钮，大声读出这个字";
       feedback.className = "";
-      if (isReviewMode) {
-        const mistakes = getMistakes();
-        const now = Date.now();
-        const dueWords = Object.keys(mistakes).filter(word => mistakes[word].nextReviewTime <= now);
-        if (dueWords.length > 0) {
-          currentWord = dueWords[0];
-          wordCard.innerText = currentWord;
-        } else {
-          isReviewMode = false;
-          alert("太棒了！今天的错题复习任务全部完成！");
-          nextWord(); 
-        }
+      const m = getMistakes();
+      const dueWords = Object.keys(m).filter(w => m[w].nextReviewTime <= Date.now());
+
+      if (dueWords.length > 0) {
+        isReviewMode = true;
+        currentWord = dueWords[0];
+        document.getElementById('modeStatus').innerText = "🔥 复习模式";
       } else {
+        isReviewMode = false;
         currentWord = newWords[Math.floor(Math.random() * newWords.length)];
-        wordCard.innerText = currentWord;
+        document.getElementById('modeStatus').innerText = "🚀 学习模式";
       }
+      wordCard.innerText = currentWord;
     }
 
-    function handleResult(spokenText) {
-      const isCorrect = spokenText.includes(currentWord);
-      const mistakes = getMistakes();
+    // 3. 校验识别结果
+    function checkResult(text) {
+      // 离线模型返回的字之间可能有空格，先去掉空格再比对
+      const cleanText = text.replace(/\s+/g, '');
+      const isCorrect = cleanText.includes(currentWord);
+      const m = getMistakes();
 
       if (isCorrect) {
-        feedback.innerText = `🎉 读对啦！"${spokenText}"`;
+        feedback.innerText = `🎉 读对啦！光之力量+1 ("${cleanText}")`;
         feedback.className = "correct";
-        if (isReviewMode && mistakes[currentWord]) {
-          let wordData = mistakes[currentWord];
-          wordData.level += 1;
-          if (wordData.level >= EBBINGHAUS_INTERVALS.length) {
-            delete mistakes[currentWord];
-          } else {
-            wordData.nextReviewTime = Date.now() + EBBINGHAUS_INTERVALS[wordData.level];
-          }
-          saveMistakes(mistakes);
+        
+        if (isReviewMode && m[currentWord]) {
+          m[currentWord].level++;
+          if (m[currentWord].level >= EBBINGHAUS_INTERVALS.length) delete m[currentWord];
+          else m[currentWord].nextReviewTime = Date.now() + EBBINGHAUS_INTERVALS[m[currentWord].level];
         }
+        saveMistakes(m);
         setTimeout(nextWord, 1500);
       } else {
-        feedback.innerText = `💪 再试一次！识别成: "${spokenText || '未听清'}"`;
-        feedback.className = "";
-        if (!mistakes[currentWord]) {
-           mistakes[currentWord] = { level: 0, nextReviewTime: Date.now() + EBBINGHAUS_INTERVALS[0] };
-        } else if (isReviewMode) {
-           mistakes[currentWord].level = 0;
-           mistakes[currentWord].nextReviewTime = Date.now() + EBBINGHAUS_INTERVALS[0];
+        const showText = cleanText || '未听清';
+        feedback.innerText = `💪 再试一次！奥特曼相信你 (听到: ${showText})`;
+        
+        if (!m[currentWord]) m[currentWord] = { level: 0, nextReviewTime: Date.now() + EBBINGHAUS_INTERVALS[0] };
+        else if (isReviewMode) {
+          m[currentWord].level = 0;
+          m[currentWord].nextReviewTime = Date.now() + EBBINGHAUS_INTERVALS[0];
         }
-        saveMistakes(mistakes);
+        saveMistakes(m);
       }
     }
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.lang = 'zh-CN'; 
-      recognition.interimResults = false;
-      let isRecording = false;
-
-      // 按下手指：开始录音
-      const startRecord = (e) => {
-        e.preventDefault();
-        if(isRecording) return;
-        isRecording = true;
-        speechBtn.classList.add('recording');
-        speechBtn.innerText = "🎙️ 正在录音...";
-        feedback.innerText = "正在倾听...";
-        feedback.className = "";
-        try { recognition.start(); } catch(err) {}
-      };
-
-      // 松开手指：停止录音并去识别
-      const stopRecord = (e) => {
-        e.preventDefault();
-        if(!isRecording) return;
-        isRecording = false;
-        speechBtn.classList.remove('recording');
-        speechBtn.innerText = "🎤 按住说话，松开识别";
-        feedback.innerText = "⏳ 正在拼命识别中...";
-        recognition.stop(); // 强制停止并触发 onresult
-      };
-
-      // 绑定移动端触摸和电脑端鼠标事件
-      speechBtn.addEventListener('touchstart', startRecord, {passive: false});
-      speechBtn.addEventListener('touchend', stopRecord, {passive: false});
-      speechBtn.addEventListener('mousedown', startRecord);
-      speechBtn.addEventListener('mouseup', stopRecord);
-      speechBtn.addEventListener('mouseleave', stopRecord); // 防止鼠标滑出按钮
-
-      recognition.onresult = (event) => {
-        const spokenText = event.results[0][0].transcript;
-        handleResult(spokenText);
-      };
-
-      // 增强错误捕获
-      recognition.onerror = (event) => {
-        if(event.error === 'not-allowed') {
-          feedback.innerText = "⚠️ 请允许麦克风权限！";
-        } else if(event.error === 'network') {
-          feedback.innerText = "⚠️ 网络无法连接到语音服务器，请换 Edge 浏览器试试！";
-        } else if(event.error === 'no-speech') {
-          feedback.innerText = "⚠️ 没听到声音哦，再按住试一次";
-        } else {
-          feedback.innerText = "⚠️ 识别出错，请重试";
-        }
-        isRecording = false;
-        speechBtn.classList.remove('recording');
-        speechBtn.innerText = "🎤 按住说话，松开识别";
-      };
+    // 4. 控制录音与停止
+    async function startRecording(e) {
+      if (e) e.preventDefault();
+      if (speechBtn.disabled) return;
       
-    } else {
-      feedback.innerText = "⚠️ 您的浏览器不支持语音识别哦";
-      speechBtn.disabled = true;
-      speechBtn.style.backgroundColor = "#ccc";
+      try {
+        if (!audioContext) {
+          // 强制使用 16000 采样率匹配模型
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          audioContext = new AudioContext({sampleRate: 16000});
+        }
+        if (audioContext.state === 'suspended') await audioContext.resume();
+
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        source = audioContext.createMediaStreamSource(mediaStream);
+        processor = audioContext.createScriptProcessor(4096, 1, 1);
+        
+        processor.onaudioprocess = (event) => {
+          const data = event.inputBuffer.getChannelData(0);
+          const pcm = new Int16Array(data.length);
+          for (let i = 0; i < data.length; i++) {
+            pcm[i] = Math.min(1, Math.max(-1, data[i])) * 0x7FFF;
+          }
+          recognizer.acceptWaveform(pcm);
+        };
+
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        
+        speechBtn.classList.add('recording');
+        speechBtn.innerText = "🎙️ 正在倾听...";
+        feedback.innerText = "大声读出来吧！";
+        feedback.className = "";
+      } catch (err) {
+        feedback.innerText = "⚠️ 请允许麦克风权限哦！";
+        console.error(err);
+      }
     }
 
-    reviewBtn.addEventListener('click', () => { isReviewMode = true; nextWord(); });
-    updateStats(); nextWord();
+    function stopRecording(e) {
+      if (e) e.preventDefault();
+      if (!speechBtn.classList.contains('recording')) return;
+      
+      speechBtn.classList.remove('recording');
+      speechBtn.innerText = "⏳ 正在解析...";
+      
+      if (processor) {
+        processor.disconnect();
+        source.disconnect();
+        mediaStream.getTracks().forEach(t => t.stop());
+        
+        // 获取最终识别结果
+        const result = recognizer.finalResult();
+        checkResult(result.text || "");
+        
+        speechBtn.innerText = "🎤 按住说话，松开识别";
+      }
+    }
+
+    // 5. 绑定触摸与鼠标事件
+    speechBtn.addEventListener('touchstart', startRecording, {passive: false});
+    speechBtn.addEventListener('touchend', stopRecording, {passive: false});
+    speechBtn.addEventListener('mousedown', startRecording);
+    speechBtn.addEventListener('mouseup', stopRecording);
+    speechBtn.addEventListener('mouseleave', stopRecording);
+
+    // 页面启动时初始化
+    updateStats();
+    initVosk();
   </script>
 </body>
 </html>
