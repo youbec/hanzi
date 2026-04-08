@@ -1,229 +1,246 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>奥特生字大闯关</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-  body { 
-    font-family: 'Microsoft YaHei', sans-serif; 
-    text-align: center; 
-    background-color: #f0f8ff; 
-    width: 100vw; height: 100vh; overflow: hidden; 
-    display: flex; flex-direction: column;
-  }
-  
-  .card { 
-    flex: 1; width: 90vw; background: linear-gradient(145deg, #ffffff, #f0f0f0); 
-    border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); 
-    margin: 20px auto; display: flex; align-items: center; justify-content: center; 
-    font-size: 45vmin; color: #333; font-weight: bold;
-  }
-  
-  .bottom-area {
-    height: auto; padding: 15px 20px 40px; background-color: #fff;
-    border-top-left-radius: 30px; border-top-right-radius: 30px;
-    box-shadow: 0 -5px 20px rgba(0,0,0,0.05);
-  }
-  
-  #feedback { font-size: 22px; font-weight: bold; min-height: 32px; color: #ff6b6b; margin-bottom: 15px; }
-  .correct { color: #4CAF50 !important; }
-  
-  /* 删除了 transform 缩小动画，避免手指滑出边界 */
-  button { 
-    background-color: #4CAF50; color: white; border: none; 
-    padding: 20px 0; font-size: 24px; border-radius: 50px; 
-    width: 90%; max-width: 400px; font-weight: bold; outline: none;
-    box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4); 
-    transition: background-color 0.2s; /* 只保留变色动画 */
-  }
-  button:disabled { background-color: #ccc; box-shadow: none; color: #666; }
-  #speechBtn.recording { background-color: #f44336; box-shadow: 0 5px 15px rgba(244, 67, 54, 0.4); }
-  
-  #stats { margin-top: 15px; font-size: 15px; color: #888; display: flex; justify-content: space-around; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小状元生字通 - 智能学习系统</title>
+    <style>
+        :root {
+            --primary: #6c5ce7;
+            --success: #00b894;
+            --warning: #fdcb6e;
+            --danger: #d63031;
+            --bg: #f7f1e3;
+        }
+        body { font-family: 'STKaiti', 'KaiTi', 'Microsoft YaHei', sans-serif; background: var(--bg); margin: 0; display: flex; flex-direction: column; align-items: center; }
+        
+        /* 顶部导航 */
+        header { width: 100%; background: white; padding: 15px 0; box-shadow: 0 2px 10px rgba(0,0,0,0.1); display: flex; justify-content: space-around; position: sticky; top: 0; z-index: 100; }
+        header button { padding: 8px 15px; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; background: #eee; }
+        header button.active { background: var(--primary); color: white; }
+
+        /* 卡片容器 */
+        #app { max-width: 500px; width: 95%; margin: 20px auto; text-align: center; }
+        .card { 
+            background: white; border-radius: 40px; padding: 50px 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.1); 
+            border-bottom: 10px solid #dfe6e9; transition: transform 0.3s; position: relative;
+        }
+        .pinyin { font-size: 40px; color: #636e72; font-family: 'Arial'; margin-bottom: 10px; }
+        .character { font-size: 140px; color: #2d3436; margin: 10px 0; line-height: 1; }
+        .meaning { font-size: 22px; color: #7f8c8d; padding: 15px; background: #f9f9f9; border-radius: 20px; min-height: 60px; }
+
+        /* 语音按钮 */
+        .mic-area { margin-top: 30px; position: relative; }
+        .mic-btn { 
+            width: 100px; height: 100px; border-radius: 50%; border: none; background: var(--primary); 
+            color: white; font-size: 40px; cursor: pointer; box-shadow: 0 10px 20px rgba(108, 92, 231, 0.3);
+        }
+        .mic-btn.listening { animation: wave 1.2s infinite; background: var(--warning); }
+        @keyframes wave { 0% { box-shadow: 0 0 0 0px rgba(253, 203, 110, 0.4); } 100% { box-shadow: 0 0 0 30px rgba(253, 203, 110, 0); } }
+
+        /* 进度反馈 */
+        #status-msg { margin-top: 20px; font-size: 24px; font-weight: bold; height: 30px; }
+        .progress-container { width: 100%; height: 12px; background: #eee; border-radius: 6px; margin: 20px 0; overflow: hidden; }
+        #progress-bar { height: 100%; background: var(--success); width: 0%; transition: 0.5s; }
+
+        /* 统计看板 */
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
+        .stat-box { background: white; padding: 15px; border-radius: 15px; font-size: 14px; }
+    </style>
 </head>
 <body>
 
-  <div id="wordCard" class="card">加载中</div>
-  
-  <div class="bottom-area">
-    <p id="feedback">正在召唤离线语音引擎...</p>
-    <button id="speechBtn" disabled>请稍候...</button>
-    
-    <div id="stats">
-      <span>错题本待复习: <strong id="mistakeCount" style="color:#ff6b6b;">0</strong> 个</span>
-      <span id="modeStatus">🚀 学习模式</span>
+<header>
+    <button id="nav-learn" class="active" onclick="switchTab('learn')">今日新字</button>
+    <button id="nav-review" onclick="switchTab('review')">复习本 (<span id="review-count">0</span>)</button>
+    <button id="nav-stats" onclick="switchTab('stats')">进度档案</button>
+</header>
+
+<div id="app">
+    <div id="view-learn">
+        <div class="progress-container"><div id="progress-bar"></div></div>
+        <div id="word-info" style="color: #636e72; margin-bottom: 10px;"></div>
+        
+        <div class="card" id="main-card">
+            <div class="pinyin" id="char-pinyin">---</div>
+            <div class="character" id="char-main">识</div>
+            <div class="meaning" id="char-meaning">点击下方麦克风开始学习</div>
+        </div>
+
+        <div id="status-msg"></div>
+
+        <div class="mic-area">
+            <button class="mic-btn" id="mic-btn" onclick="toggleListening()">🎤</button>
+            <p style="color: #b2bec3; margin-top: 15px;">大声读出上面的字</p>
+        </div>
     </div>
-  </div>
 
-  <script src="https://unpkg.com/vosk-browser@0.0.9/dist/vosk.js"></script>
+    <div id="view-stats" class="hidden" style="display:none;">
+        <h3>📊 学习成就榜</h3>
+        <div class="stats-grid">
+            <div class="stat-box">已掌握：<br><strong id="stat-mastered" style="font-size: 24px; color: var(--success);">0</strong> 个</div>
+            <div class="stat-box">准确率：<br><strong id="stat-accuracy" style="font-size: 24px; color: var(--primary);">0%</strong></div>
+        </div>
+        <div id="history-list" style="margin-top:20px; text-align: left;"></div>
+    </div>
+</div>
 
-  <script>
-    const newWords = ['天', '地', '人', '和', '学', '习', '快', '乐', '聪', '明'];
-    let currentWord = '';
-    let isReviewMode = false;
-    let isRecording = false; // 新增：全局录音状态锁
-    
-    let model, recognizer, audioContext;
-    let mediaStream, source, processor;
+<script>
+    // 1. 生字库配置 (二年级下册示例)
+    const baseLibrary = [
+        { char: "莺", pinyin: "yīng", meaning: "黄莺，春天的小鸟。" },
+        { char: "拂", pinyin: "fú", meaning: "轻轻擦过，如春风拂面。" },
+        { char: "堤", pinyin: "dī", meaning: "河边的土坝。" },
+        { char: "柳", pinyin: "liǔ", meaning: "柳树，垂下的细枝条。" },
+        { char: "醉", pinyin: "zuì", meaning: "沉迷，像喝醉了一样。" },
+        { char: "咏", pinyin: "yǒng", meaning: "歌颂，赞美。" }
+    ];
 
-    const EBBINGHAUS_INTERVALS = [12 * 3600000, 86400000, 172800000, 345600000, 604800000];
+    // 2. 艾宾浩斯调度引擎数据结构
+    // 间隔天数：1天, 2天, 4天, 7天, 15天
+    const EBBINGHAUS_INTERVALS = [0, 1, 2, 4, 7, 15]; 
 
-    const wordCard = document.getElementById('wordCard');
-    const speechBtn = document.getElementById('speechBtn');
-    const feedback = document.getElementById('feedback');
+    let userData = JSON.parse(localStorage.getItem('hero_study_data')) || {
+        progress: {}, // { "莺": { stage: 0, nextTime: 0, total: 0, correct: 0 } }
+        lastIndex: 0
+    };
 
-    // 屏蔽整个页面的系统长按菜单
-    document.addEventListener('contextmenu', event => event.preventDefault());
+    let currentQueue = [];
+    let currentIndex = 0;
+    let isListening = false;
 
-    async function initVosk() {
-      try {
-        feedback.innerText = "正在激活模型，第一次加载约需30秒...";
-        model = await Vosk.createModel('./model'); 
-        recognizer = new model.KaldiRecognizer(16000);
-        recognizer.setWords(true);
+    // 3. 语音识别初始化
+    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.lang = 'zh-CN';
+    recognition.interimResults = false;
 
-        feedback.innerText = "准备就绪！";
-        speechBtn.disabled = false;
-        speechBtn.innerText = "🎤 按住说话，松开识别";
-        nextWord();
-      } catch (e) {
-        feedback.innerText = "加载失败，请刷新网页重试";
-        console.error("Vosk错误:", e);
-      }
+    // 4. 核心逻辑
+    function init() {
+        buildTodayQueue();
+        renderCard();
+        updateStats();
     }
 
-    function getMistakes() { return JSON.parse(localStorage.getItem('kid_mistakes') || '{}'); }
-    function saveMistakes(m) { localStorage.setItem('kid_mistakes', JSON.stringify(m)); updateStats(); }
+    function buildTodayQueue() {
+        const now = Date.now();
+        currentQueue = [];
+        
+        // A. 筛选待复习的字 (艾宾浩斯逻辑)
+        for (let char in userData.progress) {
+            if (userData.progress[char].nextTime <= now && userData.progress[char].stage < EBBINGHAUS_INTERVALS.length) {
+                const baseInfo = baseLibrary.find(b => b.char === char);
+                currentQueue.push({...baseInfo, ...userData.progress[char], type: 'review'});
+            }
+        }
+        
+        // B. 如果复习完了，补充新字
+        if (currentQueue.length < 3) {
+            const start = userData.lastIndex;
+            const newWords = baseLibrary.slice(start, start + 5).map(w => ({...w, type: 'new'}));
+            currentQueue = [...currentQueue, ...newWords];
+        }
+        
+        document.getElementById('review-count').innerText = currentQueue.filter(w => w.type === 'review').length;
+    }
+
+    function renderCard() {
+        if (currentIndex >= currentQueue.length) {
+            document.getElementById('main-card').innerHTML = "<h2>🎉 今天的任务完成啦！</h2>";
+            return;
+        }
+        const word = currentQueue[currentIndex];
+        document.getElementById('char-main').innerText = word.char;
+        document.getElementById('char-pinyin').innerText = word.pinyin;
+        document.getElementById('char-meaning').innerText = `释义：${word.meaning}`;
+        document.getElementById('word-info').innerText = word.type === 'review' ? "♻️ 复习巩固" : "🌟 学习新字";
+        
+        const progress = ((currentIndex) / currentQueue.length) * 100;
+        document.getElementById('progress-bar').style.width = progress + "%";
+    }
+
+    function toggleListening() {
+        if (isListening) return;
+        isListening = true;
+        document.getElementById('mic-btn').classList.add('listening');
+        document.getElementById('status-msg').innerText = "🎧 正在听...";
+        recognition.start();
+    }
+
+    recognition.onresult = (event) => {
+        const text = event.results[0][0].transcript;
+        const target = currentQueue[currentIndex].char;
+        handleFeedback(text.includes(target));
+    };
+
+    recognition.onend = () => {
+        isListening = false;
+        document.getElementById('mic-btn').classList.remove('listening');
+    };
+
+    function handleFeedback(isCorrect) {
+        const msg = document.getElementById('status-msg');
+        const word = currentQueue[currentIndex];
+
+        // 更新用户数据
+        if (!userData.progress[word.char]) {
+            userData.progress[word.char] = { stage: 0, nextTime: 0, total: 0, correct: 0 };
+        }
+        
+        userData.progress[word.char].total++;
+        
+        if (isCorrect) {
+            msg.innerHTML = "<span style='color:var(--success)'>🌸 读得真准！</span>";
+            userData.progress[word.char].correct++;
+            
+            // 艾宾浩斯步进
+            const stage = userData.progress[word.char].stage;
+            const nextDays = EBBINGHAUS_INTERVALS[Math.min(stage + 1, 5)];
+            userData.progress[word.char].stage++;
+            userData.progress[word.char].nextTime = Date.now() + (nextDays * 24 * 60 * 60 * 1000);
+            
+            if (word.type === 'new') userData.lastIndex = Math.max(userData.lastIndex, baseLibrary.findIndex(b => b.char === word.char) + 1);
+
+            saveData();
+            setTimeout(() => {
+                currentIndex++;
+                msg.innerText = "";
+                renderCard();
+            }, 1500);
+        } else {
+            msg.innerHTML = "<span style='color:var(--danger)'>再试一次，加油！</span>";
+            // 读错逻辑：阶段重置回1，加快复习频率
+            userData.progress[word.char].stage = 0;
+            userData.progress[word.char].nextTime = Date.now() + (1 * 60 * 60 * 1000); // 1小时后再次出现
+            saveData();
+        }
+    }
+
+    function saveData() {
+        localStorage.setItem('hero_study_data', JSON.stringify(userData));
+        updateStats();
+    }
 
     function updateStats() {
-      const m = getMistakes();
-      const dueCount = Object.keys(m).filter(w => m[w].nextReviewTime <= Date.now()).length;
-      document.getElementById('mistakeCount').innerText = dueCount;
+        const words = Object.values(userData.progress);
+        const mastered = words.filter(w => w.stage >= 5).length;
+        const totalAttempts = words.reduce((a, b) => a + b.total, 0);
+        const correctAttempts = words.reduce((a, b) => a + b.correct, 0);
+        const acc = totalAttempts ? Math.round((correctAttempts / totalAttempts) * 100) : 0;
+
+        document.getElementById('stat-mastered').innerText = mastered;
+        document.getElementById('stat-accuracy').innerText = acc + "%";
     }
 
-    function nextWord() {
-      feedback.innerText = "请按住绿色按钮，大声读出这个字";
-      feedback.className = "";
-      const m = getMistakes();
-      const dueWords = Object.keys(m).filter(w => m[w].nextReviewTime <= Date.now());
-
-      if (dueWords.length > 0) {
-        isReviewMode = true;
-        currentWord = dueWords[0];
-        document.getElementById('modeStatus').innerText = "🔥 复习模式";
-      } else {
-        isReviewMode = false;
-        currentWord = newWords[Math.floor(Math.random() * newWords.length)];
-        document.getElementById('modeStatus').innerText = "🚀 学习模式";
-      }
-      wordCard.innerText = currentWord;
+    function switchTab(tab) {
+        const views = ['view-learn', 'view-stats'];
+        views.forEach(v => document.getElementById(v).style.display = v.includes(tab) ? 'block' : 'none');
+        document.querySelectorAll('header button').forEach(b => b.classList.remove('active'));
+        document.getElementById('nav-' + tab).classList.add('active');
     }
 
-    function checkResult(text) {
-      const cleanText = text.replace(/\s+/g, '');
-      const isCorrect = cleanText.includes(currentWord);
-      const m = getMistakes();
+    // 启动
+    init();
+</script>
 
-      if (isCorrect) {
-        feedback.innerText = `🎉 读对啦！光之力量+1 ("${cleanText}")`;
-        feedback.className = "correct";
-        if (isReviewMode && m[currentWord]) {
-          m[currentWord].level++;
-          if (m[currentWord].level >= EBBINGHAUS_INTERVALS.length) delete m[currentWord];
-          else m[currentWord].nextReviewTime = Date.now() + EBBINGHAUS_INTERVALS[m[currentWord].level];
-        }
-        saveMistakes(m);
-        setTimeout(nextWord, 1500);
-      } else {
-        const showText = cleanText || '未听清';
-        feedback.innerText = `💪 再试一次！奥特曼相信你 (听到: ${showText})`;
-        if (!m[currentWord]) m[currentWord] = { level: 0, nextReviewTime: Date.now() + EBBINGHAUS_INTERVALS[0] };
-        else if (isReviewMode) {
-          m[currentWord].level = 0;
-          m[currentWord].nextReviewTime = Date.now() + EBBINGHAUS_INTERVALS[0];
-        }
-        saveMistakes(m);
-      }
-    }
-
-    async function startRecording(e) {
-      if (e) e.preventDefault();
-      // 如果正在录音，或者按钮被禁用，直接拦截，防止打架
-      if (isRecording || speechBtn.disabled) return;
-      
-      try {
-        isRecording = true; // 上锁
-        if (!audioContext) {
-          const AudioContext = window.AudioContext || window.webkitAudioContext;
-          audioContext = new AudioContext({sampleRate: 16000});
-        }
-        if (audioContext.state === 'suspended') await audioContext.resume();
-
-        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        source = audioContext.createMediaStreamSource(mediaStream);
-        processor = audioContext.createScriptProcessor(4096, 1, 1);
-        
-        processor.onaudioprocess = (event) => {
-          try {
-             // 直接传入浏览器的 Float32 音频流，性能更好且不易崩溃
-             const audioData = event.inputBuffer.getChannelData(0);
-             recognizer.acceptWaveform(audioData);
-          } catch(err) {
-             console.error("音频处理出错", err);
-          }
-        };
-
-        source.connect(processor);
-        processor.connect(audioContext.destination);
-        
-        speechBtn.classList.add('recording');
-        speechBtn.innerText = "🎙️ 正在倾听...";
-        feedback.innerText = "大声读出来吧！";
-        feedback.className = "";
-      } catch (err) {
-        isRecording = false; // 解锁
-        feedback.innerText = "⚠️ 请允许麦克风权限哦！";
-        console.error(err);
-      }
-    }
-
-    function stopRecording(e) {
-      if (e) e.preventDefault();
-      // 如果根本没在录音，直接拦截
-      if (!isRecording) return;
-      
-      isRecording = false; // 解锁
-      speechBtn.classList.remove('recording');
-      speechBtn.innerText = "⏳ 正在解析...";
-      
-      if (processor) {
-        processor.disconnect();
-        source.disconnect();
-        mediaStream.getTracks().forEach(t => t.stop());
-        
-        try {
-          const result = recognizer.finalResult();
-          checkResult(result.text || "");
-        } catch(err) {
-          checkResult("");
-        }
-        
-        speechBtn.innerText = "🎤 按住说话，松开识别";
-      }
-    }
-
-    // 绑定事件（移除了坑人的 mouseleave）
-    speechBtn.addEventListener('touchstart', startRecording, {passive: false});
-    speechBtn.addEventListener('touchend', stopRecording, {passive: false});
-    speechBtn.addEventListener('touchcancel', stopRecording, {passive: false}); // 新增：防止手指滑出屏幕边缘
-    speechBtn.addEventListener('mousedown', startRecording);
-    speechBtn.addEventListener('mouseup', stopRecording);
-
-    updateStats();
-    initVosk();
-  </script>
 </body>
 </html>
