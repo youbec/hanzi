@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>趣味生字本</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    :root { --primary: #4CAF50; --bg: #F0F8FF; --text: #333; }
+    body { font-family: 'Comic Sans MS', 'Microsoft YaHei', sans-serif; background-color: var(--bg); margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    
+    /* 顶部导航 */
+    .nav { display: flex; background: white; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    .nav-item { flex: 1; text-align: center; padding: 15px 0; font-size: 18px; font-weight: bold; color: #888; cursor: pointer; transition: 0.3s; }
+    .nav-item.active { color: var(--primary); border-bottom: 3px solid var(--primary); }
+
+    /* 主体容器 */
+    .container { flex: 1; padding: 20px; display: none; flex-direction: column; align-items: center; justify-content: center; overflow-y: auto; }
+    .container.active { display: flex; }
+
+    /* 生字卡片 */
+    .card { background: white; width: 80%; max-width: 400px; aspect-ratio: 3/4; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; transition: transform 0.3s; }
+    .pinyin { font-size: 2rem; color: #666; margin-bottom: 10px; }
+    .character { font-size: 8rem; font-weight: bold; color: var(--text); line-height: 1; margin-bottom: 20px; }
+    .meaning { font-size: 1.2rem; color: #888; text-align: center; padding: 0 20px; }
+    
+    /* 动画效果 */
+    @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-30px); } }
+    @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-15px); } 75% { transform: translateX(15px); } }
+    .anim-bounce { animation: bounce 0.6s ease; }
+    .anim-shake { animation: shake 0.4s ease; }
+    .feedback-icon { position: absolute; font-size: 6rem; opacity: 0; transition: 0.3s; z-index: 10; pointer-events: none; }
+    .show-feedback { opacity: 1; transform: scale(1.2); }
+
+    /* 控制按钮 */
+    .controls { display: flex; gap: 15px; margin-top: 30px; width: 100%; max-width: 400px; justify-content: center; flex-wrap: wrap; }
+    .btn { padding: 15px 25px; font-size: 1.2rem; border: none; border-radius: 50px; cursor: pointer; font-weight: bold; color: white; box-shadow: 0 4px 10px rgba(0,0,0,0.2); transition: transform 0.1s; }
+    .btn:active { transform: scale(0.95); }
+    .btn-mic { background: #2196F3; width: 100%; margin-bottom: 10px; font-size: 1.5rem; padding: 20px; }
+    .btn-right { background: #4CAF50; flex: 1; }
+    .btn-wrong { background: #F44336; flex: 1; }
+
+    /* 错题本列表 */
+    .list-item { background: white; width: 100%; padding: 15px; border-radius: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+    .list-char { font-size: 2rem; font-weight: bold; color: var(--primary); }
+    .list-stats { font-size: 0.9rem; color: #666; text-align: right; }
+    .empty-state { text-align: center; color: #888; font-size: 1.2rem; margin-top: 50px; }
+  </style>
+</head>
+<body>
+
+  <div class="nav">
+    <div class="nav-item active" onclick="switchTab('study')">📖 生字学习</div>
+    <div class="nav-item" onclick="switchTab('wrong')">📚 错题本</div>
+  </div>
+
+  <div id="study-panel" class="container active">
+    <div class="card" id="flashcard">
+      <div id="feedback" class="feedback-icon">🌟</div>
+      <div class="pinyin" id="char-pinyin"></div>
+      <div class="character" id="char-text"></div>
+      <div class="meaning" id="char-meaning"></div>
+    </div>
+    <div id="status-text" style="margin-top: 15px; color: #666; font-weight: bold;"></div>
+    <div class="controls">
+      <button class="btn btn-mic" onclick="startSpeech()">🎤 按住朗读</button>
+      <button class="btn btn-right" onclick="handleResult(true)">✅ 读对了</button>
+      <button class="btn btn-wrong" onclick="handleResult(false)">❌ 没认出</button>
+    </div>
+  </div>
+
+  <div id="wrong-panel" class="container" style="justify-content: flex-start;">
+    <div id="wrong-list" style="width: 100%; max-width: 400px; padding-top: 10px;"></div>
+  </div>
+
+  <script>
+    // --- 注册 Service Worker (PWA核心) ---
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW 注册失败:', err));
+      });
+    }
+
+    // --- 数据初始化 ---
+    const initialWords = [
+      { char: "猫", pinyin: "māo", meaning: "抓老鼠的宠物", wrongCount: 0, level: 0 },
+      { char: "狗", pinyin: "gǒu", meaning: "看家护院的朋友", wrongCount: 0, level: 0 },
+      { char: "跑", pinyin: "pǎo", meaning: "快速地向前移动", wrongCount: 0, level: 0 },
+      { char: "跳", pinyin: "tiào", meaning: "双脚用力离开地面", wrongCount: 0, level: 0 },
+      { char: "光", pinyin: "guāng", meaning: "太阳照亮大地的东西", wrongCount: 0, level: 0 }
+    ];
+
+    // 从本地存储读取数据，如果没有则用初始数据
+    let words = JSON.parse(localStorage.getItem('wordsData')) || initialWords;
+    let currentIndex = 0;
+    
+    // --- 语音识别设置 (Web Speech API) ---
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition;
+    if (SpeechRecognition) {
+      recognition = new SpeechRecognition();
+      recognition.lang = 'zh-CN';
+      recognition.interimResults = false;
+      
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        const currentChar = words[currentIndex].char;
+        document.getElementById('status-text').innerText = `听到你读: "${transcript}"`;
+        // 如果识别的文本包含当前生字，判对
+        if (transcript.includes(currentChar)) {
+          handleResult(true);
+        } else {
+          handleResult(false);
+        }
+      };
+
+      recognition.onerror = (event) => {
+        document.getElementById('status-text').innerText = "没听清，再试一次哦！";
+      };
+    }
+
+    function startSpeech() {
+      if (!recognition) {
+        alert("当前浏览器不支持语音识别，请使用下方按钮模拟！");
+        return;
+      }
+      document.getElementById('status-text').innerText = "🎤 正在聆听...";
+      recognition.start();
+    }
+
+    // --- 核心逻辑 ---
+    function renderCard() {
+      if (currentIndex >= words.length) {
+        document.getElementById('flashcard').innerHTML = '<div class="character" style="font-size: 3rem;">🎉</div><div class="meaning">太棒了！像赛罗奥特曼一样厉害！今天的字都过了一遍啦！</div>';
+        document.querySelector('.controls').style.display = 'none';
+        return;
+      }
+      const word = words[currentIndex];
+      document.getElementById('char-pinyin').innerText = word.pinyin;
+      document.getElementById('char-text').innerText = word.char;
+      document.getElementById('char-meaning').innerText = word.meaning;
+      document.getElementById('status-text').innerText = "";
+    }
+
+    function handleResult(isCorrect) {
+      const card = document.getElementById('flashcard');
+      const feedback = document.getElementById('feedback');
+      
+      if (isCorrect) {
+        feedback.innerText = "🌟";
+        feedback.classList.add('show-feedback');
+        card.classList.add('anim-bounce');
+        // 答对了，如果之前有错题记录，降低复习等级
+        if(words[currentIndex].level > 0) words[currentIndex].level--;
+      } else {
+        feedback.innerText = "💪";
+        feedback.classList.add('show-feedback');
+        card.classList.add('anim-shake');
+        // 答错了，记录到错题本，提升复习等级
+        words[currentIndex].wrongCount++;
+        words[currentIndex].level = 1; 
+      }
+
+      // 保存进度
+      localStorage.setItem('wordsData', JSON.stringify(words));
+
+      // 动画结束后切换下一个字
+      setTimeout(() => {
+        card.classList.remove('anim-bounce', 'anim-shake');
+        feedback.classList.remove('show-feedback');
+        currentIndex++;
+        renderCard();
+      }, 1000);
+    }
+
+    // --- 错题本逻辑 ---
+    function renderWrongBook() {
+      const wrongListContainer = document.getElementById('wrong-list');
+      wrongListContainer.innerHTML = '';
+      
+      const wrongWords = words.filter(w => w.wrongCount > 0);
+      
+      if (wrongWords.length === 0) {
+        wrongListContainer.innerHTML = '<div class="empty-state">👏 棒极了！目前没有任何错题！</div>';
+        return;
+      }
+
+      wrongWords.forEach(word => {
+        const div = document.createElement('div');
+        div.className = 'list-item';
+        div.innerHTML = `
+          <div class="list-char">${word.char}</div>
+          <div class="list-stats">
+            读错次数: <b style="color:#F44336">${word.wrongCount}</b> 次<br>
+            复习等级: Level ${word.level}
+          </div>
+        `;
+        wrongListContainer.appendChild(div);
+      });
+    }
+
+    // --- Tab 切换 ---
+    function switchTab(tab) {
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.container').forEach(el => el.classList.remove('active'));
+      
+      if (tab === 'study') {
+        document.querySelector('.nav-item:nth-child(1)').classList.add('active');
+        document.getElementById('study-panel').classList.add('active');
+      } else {
+        document.querySelector('.nav-item:nth-child(2)').classList.add('active');
+        document.getElementById('wrong-panel').classList.add('active');
+        renderWrongBook();
+      }
+    }
+
+    // 初始化渲染
+    renderCard();
+  </script>
+</body>
+</html>
